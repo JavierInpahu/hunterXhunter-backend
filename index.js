@@ -1,10 +1,9 @@
 const express = require("express");
 const cors = require("cors");
-const { conectar } = require("./db/connection");
-const Caballero = require("./models/Caballero");
+const { conectarMongo, conectarMySQL } = require("./db/connection");
+const { CazadorMongo, sincronizarMySQL } = require("./models/cazador");
 const swaggerUi = require("swagger-ui-express");
 const swaggerJsdoc = require("swagger-jsdoc");
-
 require("dotenv").config();
 
 const app = express();
@@ -17,18 +16,16 @@ const swaggerOptions = {
   definition: {
     openapi: "3.0.0",
     info: {
-      title: "API de Caballeros del Zodiaco",
+      title: "API de Hunter X Hunter",
       version: "1.0.0",
-      description:
-        "API REST creada con Node.js, Express y MongoDB Atlas. Documentada con Swagger.",
+      description: "API REST creada con Node.js, Express, MongoDB Atlas y MySQL.",
       contact: {
         name: "Oscar Javier Ramírez",
-        email: "tu_correo@example.com",
+        email: "0808javierramirez88@example.com",
       },
     },
     servers: [
       { url: "http://localhost:3000", description: "Servidor local" },
-      { url: "https://caballerosapp-backend.onrender.com", description: "Servidor en Render" },
     ],
   },
   apis: ["./index.js"],
@@ -37,91 +34,182 @@ const swaggerOptions = {
 const swaggerDocs = swaggerJsdoc(swaggerOptions);
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocs));
 
+// Ruta raíz simple para probar
+app.get("/", (req, res) => {
+  res.send("API Hunter X Hunter funcionando");
+});
+
 /**
  * @swagger
- * /caballeros:
+ * /cazadores:
  *   get:
- *     summary: Obtiene todos los caballeros
+ *     summary: Obtiene todos los cazadores de MongoDB
  *     responses:
  *       200:
- *         description: Lista de caballeros
- *         content:
- *           application/json:
- *             example:
- *               - _id: "6900012a57ebb67195b0c969"
- *                 nombre: "Ikki"
- *                 signo: "Fénix"
- *                 armadura: "Bronce"
- *                 poder: 92
- *                 rank: "Bronce"
- *                 descripcion: "Caballero de Fénix"
- *                 imagen: "https://link-a-imagen-ikki.jpg"
- *       500:
- *         description: Error del servidor
- *
- * /caballeros/{nombre}:
+ *         description: Lista de cazadores
+ */
+app.get("/cazadores", async (req, res) => {
+  try {
+    const cazadores = await CazadorMongo.find();
+    res.json(cazadores);
+  } catch {
+    res.status(500).json({ error: "Error al obtener los cazadores" });
+  }
+});
+
+/**
+ * @swagger
+ * /cazadores/{nombre}:
  *   get:
- *     summary: Obtiene un caballero por nombre
+ *     summary: Busca un cazador por nombre en MongoDB
  *     parameters:
  *       - in: path
  *         name: nombre
- *         required: true
- *         description: Nombre del caballero a buscar
  *         schema:
  *           type: string
+ *         required: true
+ *         description: Nombre del cazador a buscar
  *     responses:
  *       200:
- *         description: Caballero encontrado
- *         content:
- *           application/json:
- *             example:
- *               _id: "6900012a57ebb67195b0c969"
- *               nombre: "Ikki"
- *               signo: "Fénix"
- *               armadura: "Bronce"
- *               poder: 92
- *               rank: "Bronce"
- *               descripcion: "Caballero de Fénix"
- *               imagen: "https://link-a-imagen-ikki.jpg"
+ *         description: Datos del cazador
  *       404:
- *         description: Caballero no encontrado
- *       500:
- *         description: Error del servidor
+ *         description: Cazador no encontrado
  */
+app.get("/cazadores/:nombre", async (req, res) => {
+  try {
+    const { nombre } = req.params;
+    const regex = new RegExp(nombre, "i");
+    const cazador = await CazadorMongo.findOne({ nombre: regex });
+    if (!cazador) return res.status(404).json({ error: "Cazador no encontrado" });
+    res.json(cazador);
+  } catch {
+    res.status(500).json({ error: "Error al buscar el cazador" });
+  }
+});
+
+/**
+ * @swagger
+ * /cazadores:
+ *   post:
+ *     summary: Crea un nuevo cazador en MongoDB
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               nombre:
+ *                 type: string
+ *               edad:
+ *                 type: integer
+ *               altura:
+ *                 type: number
+ *               peso:
+ *                 type: number
+ *               url_imagen:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Cazador creado
+ *       500:
+ *         description: Error al crear el cazador
+ */
+app.post("/cazadores", async (req, res) => {
+  try {
+    const nuevo = new CazadorMongo(req.body);
+    await nuevo.save();
+    res.status(201).json(nuevo);
+  } catch {
+    res.status(500).json({ error: "Error al crear el cazador" });
+  }
+});
+
+/**
+ * @swagger
+ * /cazadores/{nombre}:
+ *   put:
+ *     summary: Actualiza un cazador por nombre en MongoDB
+ *     parameters:
+ *       - in: path
+ *         name: nombre
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Nombre del cazador a actualizar
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Cazador actualizado
+ *       404:
+ *         description: Cazador no encontrado
+ *       500:
+ *         description: Error al actualizar el cazador
+ */
+app.put("/cazadores/:nombre", async (req, res) => {
+  try {
+    const { nombre } = req.params;
+    const actualizado = await CazadorMongo.findOneAndUpdate(
+      { nombre: new RegExp(nombre, "i") },
+      req.body,
+      { new: true }
+    );
+    if (!actualizado)
+      return res.status(404).json({ error: "Cazador no encontrado" });
+    res.json(actualizado);
+  } catch {
+    res.status(500).json({ error: "Error al actualizar el cazador" });
+  }
+});
+
+/**
+ * @swagger
+ * /cazadores/{nombre}:
+ *   delete:
+ *     summary: Elimina un cazador por nombre en MongoDB
+ *     parameters:
+ *       - in: path
+ *         name: nombre
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Nombre del cazador a eliminar
+ *     responses:
+ *       200:
+ *         description: Cazador eliminado correctamente
+ *       404:
+ *         description: Cazador no encontrado
+ *       500:
+ *         description: Error al eliminar el cazador
+ */
+app.delete("/cazadores/:nombre", async (req, res) => {
+  try {
+    const { nombre } = req.params;
+    const eliminado = await CazadorMongo.findOneAndDelete({
+      nombre: new RegExp(nombre, "i"),
+    });
+    if (!eliminado)
+      return res.status(404).json({ error: "Cazador no encontrado" });
+    res.json({ mensaje: "Cazador eliminado correctamente" });
+  } catch {
+    res.status(500).json({ error: "Error al eliminar el cazador" });
+  }
+});
 
 (async () => {
   try {
-    await conectar();
-    console.log(" Conectado correctamente a MongoDB Atlas");
-
-    app.get("/caballeros", async (req, res) => {
-      try {
-        const caballeros = await Caballero.find();
-        res.json(caballeros);
-      } catch (err) {
-        res.status(500).json({ error: "Error al obtener los caballeros" });
-      }
-    });
-
-    app.get("/caballeros/:nombre", async (req, res) => {
-      try {
-        const { nombre } = req.params;
-        const regex = new RegExp(nombre, "i");
-        const caballero = await Caballero.findOne({ nombre: regex });
-
-        if (!caballero)
-          return res.status(404).json({ error: "Caballero no encontrado" });
-
-        res.json(caballero);
-      } catch (err) {
-        res.status(500).json({ error: "Error al buscar el caballero" });
-      }
-    });
+    await conectarMongo();
+    await conectarMySQL();
+    await sincronizarMySQL();
 
     app.listen(PORT, () => {
-      console.log(`Servidor escuchando en http://localhost:${PORT}`);
-      console.log(`Documentación Swagger en http://localhost:${PORT}/api-docs`);
-      console.log(`Documentación en línea: https://caballerosapp-backend.onrender.com/api-docs`);
+      console.log(`Servidor corriendo en http://localhost:${PORT}`);
+      console.log(`Swagger disponible en http://localhost:${PORT}/api-docs`);
     });
   } catch (error) {
     console.error("Error al iniciar el servidor:", error);
